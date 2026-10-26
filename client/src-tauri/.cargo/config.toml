@@ -1,0 +1,15 @@
+# Cross-compile the Tauri (Rust) app for Windows from this Linux box.
+#
+# Toolchain: mstorsjo/llvm-mingw (ELF, host=Linux) — its bin/ is added to PATH by the
+# build script. This is LLVM-based, so it ships NO libgcc.a/libgcc_eh.a (uses libunwind).
+#
+# Winning recipe (verified with a hello-world PE):
+#   - linker: the mingw gcc
+#   - empty libgcc.a / libgcc_eh.a stubs in the mingw lib dir  (satisfy the target spec)
+#   - link-args=-lunwind  (mstorsjo's libunwind.a provides _Unwind_* that rustc's
+#     spec expects from libgcc in a GCC toolchain)
+#   - DO NOT use link-self-contained: rustc's bundled mingw crt2.o expects GCC CRT
+#     symbols that LLVM-mingw does not provide.
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+rustflags = ["-C", "link-args=-lunwind"]

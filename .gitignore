@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+
+# Rust（注意：必须用 ** 前缀，否则匹配不到 client/src-tauri/target/）
+**/src-tauri/target/
+target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Env
+.env
+.env.local
+# 后端真实配置（含 DB 口令 / JWT 密钥），只提交 .env.example
+backend/.env
+docker-compose.override.yml
+
+# 代码签名私钥材料：绝不能进仓库（证书 .cer/.crt 是公开的，可以提交）
+signing/*.key
+signing/*.pfx
+signing/*.p12
+signing/*.pem
+signing/password.txt
+
+# OS
+.DS_Store
+Thumbs.db

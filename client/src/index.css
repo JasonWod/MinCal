@@ -1,0 +1,186 @@
+/* MinCal - macOS-inspired design tokens */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Light mode */
+  --bg-primary: #F5F5F7;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #E8E8ED;
+  --text-primary: #1D1D1F;
+  --text-secondary: #6E6E73;
+  --text-tertiary: #86868B;
+  --accent: #4F46E5;
+  --accent-soft: rgba(79, 70, 229, 0.1);
+  --border: rgba(0, 0, 0, 0.08);
+  --shadow-popup: 0 8px 30px rgba(0, 0, 0, 0.12);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --glass-bg: rgba(255, 255, 255, 0.75);
+  --glass-blur: blur(30px) saturate(180%);
+
+  /* Event colors */
+  --event-blue: #4F46E5;
+  --event-green: #10B981;
+  --event-orange: #F59E0B;
+  --event-purple: #8B5CF6;
+  --event-red: #EF4444;
+  --event-pink: #EC4899;
+}
+
+.dark {
+  --bg-primary: #1C1C1E;
+  --bg-secondary: #000000;
+  --bg-tertiary: #2C2C2E;
+  --text-primary: #F5F5F7;
+  --text-secondary: #A1A1A6;
+  --text-tertiary: #6E6E73;
+  --accent: #5E5CE6;
+  --accent-soft: rgba(94, 92, 230, 0.15);
+  --border: rgba(255, 255, 255, 0.1);
+  --shadow-popup: 0 8px 30px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --glass-bg: rgba(28, 28, 30, 0.75);
+  --glass-blur: blur(30px) saturate(180%);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  background: transparent;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * BUGFIX: 「点击新增无法录入文字」
+ * 上面 body 的 user-select:none 会被 <input> / <textarea> 继承。在 Chromium /
+ * WebView2 下，继承来的 user-select:none 会让可编辑控件失去光标、无法选中文字，
+ * 进而表现为“输入框点不开、打不进字、已有的字改不掉”。
+ * 因此所有可编辑控件必须显式恢复 text 选择。
+ * ------------------------------------------------------------------------ */
+input,
+textarea,
+select,
+[contenteditable="true"],
+[contenteditable="plaintext-only"] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* 未禁用的输入控件给出文本光标，明确“这里可以输入” */
+input:not([disabled]),
+textarea:not([disabled]) {
+  cursor: text;
+}
+
+/* 占位符保持可读，但不参与选中 */
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-tertiary);
+  opacity: 1;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 聚焦态：一眼看出当前正在编辑哪个字段 */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* 禁用态明确不可编辑 */
+input[disabled],
+textarea[disabled],
+select[disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* Glass effect */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+/* Press animation */
+.pressable {
+  transition: transform 120ms ease, opacity 120ms ease;
+  cursor: pointer;
+}
+.pressable:active {
+  transform: scale(0.97);
+  opacity: 0.85;
+}
+
+/* Card hover */
+.card-hover {
+  transition: box-shadow 150ms ease, background 150ms ease;
+}
+.card-hover:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* Segmented control */
+.segmented {
+  display: inline-flex;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-pill);
+  padding: 2px;
+  gap: 0;
+}
+.segmented button {
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all 150ms ease;
+  border: none;
+  background: transparent;
+}
+.segmented button.active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Event color bar */
+.event-bar {
+  width: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}

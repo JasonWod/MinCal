@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "MinCal 默认权限：托盘弹层与主窗口互相显示/隐藏，以及打开外部链接。",
+  "windows": ["main", "tray-popup"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-is-visible",
+    "shell:allow-open"
+  ]
+}

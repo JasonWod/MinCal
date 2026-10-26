@@ -1,0 +1,27 @@
+version: "3.8"
+services:
+  mincal-server:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mincal-server
+    restart: always
+    ports:
+      - "28091:8000"
+    environment:
+      # 真实值一律放在项目根目录的 .env（已被 .gitignore 忽略），不要写进本文件。
+      # 缺变量时 docker 会直接报错，避免用默认口令悄悄跑起来。
+      - DATABASE_URL=${DATABASE_URL:?缺少 DATABASE_URL，请在项目根目录 .env 中配置}
+      - JWT_SECRET=${JWT_SECRET:?缺少 JWT_SECRET，请在项目根目录 .env 中配置}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost,http://127.0.0.1}
+    networks:
+      - mincal_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  mincal_net:
+    driver: bridge

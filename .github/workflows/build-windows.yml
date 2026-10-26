@@ -1,0 +1,107 @@
+name: Build MinCal Windows
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Install frontend deps
+        working-directory: client
+        run: npm ci
+      - name: Typecheck (tsc --noEmit)
+        working-directory: client
+        run: npx tsc --noEmit
+      - name: Unit tests (vitest)
+        working-directory: client
+        run: npm test
+
+  test-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend deps
+        working-directory: backend
+        run: pip install -r requirements.txt pytest
+      - name: Security & contract tests (pytest)
+        working-directory: backend
+        run: python -m pytest -q
+
+  build-windows:
+    needs: [test-client, test-backend]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install WebKit dependency (Windows has WebView2 built-in)
+        run: echo "Windows 10/11 includes WebView2 Evergreen by default"
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend dependencies
+        working-directory: client
+        run: npm install
+
+      - name: Build Tauri app
+        working-directory: client
+        run: npx tauri build
+
+      - name: 防呆校验（禁止开发模式/错配产物发布）
+        working-directory: client
+        shell: pwsh
+        run: |
+          $exe = "src-tauri\target\release\mincal.exe"
+          $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe))
+          # 判据说明：只有开启 custom-protocol 的生产构建才会把前端资源打进 exe。
+          # 开发模式产物里没有资产清单 → 用户双击会去连开发服务器而报「拒绝连接」。
+          if ($text -notmatch 'assets/index-') {
+            Write-Error "产物未内嵌前端资源（开发模式）。裸 cargo build 缺 --features custom-protocol，拒绝发布。"
+            exit 1
+          }
+          # 防"前端没重建就打旧包"：exe 内嵌的 bundle 必须就是当前 dist 里的那个。
+          $js = Get-ChildItem "dist/assets" -Filter "index-*.js" | Select-Object -First 1
+          if (-not $js) { Write-Error "dist/assets 找不到前端 bundle，请先 npm run build"; exit 1 }
+          if ($text -notmatch [regex]::Escape($js.Name)) {
+            Write-Error "exe 内嵌的不是当前 dist 产物($($js.Name))，前端与二进制版本错配，拒绝发布。"
+            exit 1
+          }
+          # 注意：devUrl(端口) 在 dev/prod 两种构建下都会被写进内嵌配置，
+          # 因此端口字符串**不能**作为 dev/prod 的判据，只有资产清单可靠。
+          Write-Host "校验通过：已内嵌 $(( Get-ChildItem 'dist/assets' -Filter 'index-*' | Measure-Object).Count) 个当前 dist 资源（生产模式）"
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: mincal-windows-installer
+          path: client/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: client/src-tauri/target/release/bundle/nsis/*.exe
