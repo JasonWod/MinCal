@@ -17,64 +17,118 @@ Windows Client (Tauri 2 + React)  ←→  FastAPI Backend (Docker)  ←→  Post
    托盘弹出层 + 完整窗口                   REST + WebSocket            事件存储
 ```
 
-## 快速开始（开发）
+## 给普通用户：直接下载安装
 
-### 1. 启动后端
+到 **Releases** 页面取包，不需要装任何开发环境：
+https://github.com/JasonWod/MinCal/releases
 
-```bash
-cd ~/projects/mincal
-# 创建数据库（在 100.66.1.1:5432 上）
-psql -h 100.66.1.1 -U mincal -c "CREATE DATABASE mincal"
+- **安装包** `MinCal Setup <版本>.exe`：双击安装，带开始菜单/桌面快捷方式
+- **便携版** `MinCal-<版本>-windows-x64.zip`：解压即用，免安装
 
-# Docker 启动
-docker-compose up -d
-```
+装好后首次启动，在 **设置** 里填服务器地址，形如 `http://<服务器IP>:28091`。
+旧版本里填过的 `:8091` 会在启动时**自动改写**成 `:28091`，不用手动重填。
 
-### 2. 前端开发
+## 部署后端（任意 Docker 环境）
 
-```bash
-cd client
-npm install
-npm run dev  # Vite dev server on :25173
-```
+后端镜像基于 `python:3.12-slim`，**容器内固定监听 8000**，不绑定任何面板或发行版——Docker Engine、Podman、Portainer、任意云主机/VPS 都一样跑。唯一的额外依赖是一个可访问的 **PostgreSQL**（已建好库和账号）。
 
-### 3. Tauri 开发（需要 Rust）
+### 方式一：docker compose（推荐）
 
 ```bash
-cd client
-npx tauri dev  # 本地调试
+cp .env.example .env            # 填 DATABASE_URL / JWT_SECRET / CORS_ORIGINS
+docker compose up -d --build
+docker compose ps
+curl http://127.0.0.1:28091/health
 ```
 
-## 构建 Windows 安装包
+### 方式二：纯 docker run（没装 compose 也能跑）
 
-### 方式 A：在 Windows 机器上
+```bash
+docker build -t mincal-server ./backend
+docker run -d --name mincal-server \
+  -p 28091:8000 \
+  -e DATABASE_URL="postgresql+asyncpg://mincal:<强密码>@<PG主机>:5432/mincal" \
+  -e JWT_SECRET="<随机串>" \
+  -e CORS_ORIGINS="http://localhost,http://127.0.0.1,http://<客户端IP>" \
+  --restart unless-stopped \
+  mincal-server
+```
+
+宿主机端口可换成任意空闲端口（`-p <宿主端口>:8000`）；客户端填的就是这个**宿主端口**。
+
+### 方式三：完全不用 Docker
+
+```bash
+cd backend
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 28091
+```
+
+### 用 1Panel / 宝塔 / Portainer 之类的面板？
+
+面板只是"帮你执行同一个 compose 文件"的入口，**不用换镜像、不用改端口映射逻辑**。在面板里选「Compose / 容器编排 → 新建项目」，把仓库里的 `docker-compose.yml` 原样贴进去，并保证同目录有 `.env` 即可。面板把项目放在哪个目录由它自己决定，**与能否运行无关**——不要为了迁就面板去改 compose 内容。
+
+### 环境变量
+
+| 变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `DATABASE_URL` | 是 | PostgreSQL 连接串，**必须**是 `postgresql+asyncpg://` 前缀 |
+| `JWT_SECRET` | 是 | JWT 签名密钥，用 `openssl rand -hex 32` 生成；改了会使已登录会话失效 |
+| `CORS_ORIGINS` | 否 | 允许访问的客户端来源，逗号分隔，默认 `http://localhost,http://127.0.0.1` |
+
+缺 `DATABASE_URL` / `JWT_SECRET` 时 `docker compose up` 会**直接报错退出**，不会拿默认口令悄悄启动（已实测：`required variable DATABASE_URL is missing a value`）。
+
+### 网络与端口
+
+- 服务端口 **28091**（映射到容器内 8000）。部署前确认没被占用：`ss -tlnp | grep 28091`
+- 走反向代理（Nginx / Caddy / Traefik）时必须转发 WebSocket：保留 `Upgrade` 与 `Connection: upgrade` 头，并放宽长连接超时，否则实时同步会断
+- 健康检查：`GET /health` → `{"status":"ok|degraded","database":"up|down"}`
+
+## 从源码构建客户端（开发者）
+
+### 本机 Windows 构建
 
 ```powershell
-# 前置：安装 Rust (rustup) + Node.js 18+
-# 然后运行：
+# Windows 10/11 x64；前置：Rust（rustup，默认 stable）+ Node.js 18+
 .\scripts\build-windows.ps1
+# 产出：client\src-tauri\target\release\bundle\nsis\MinCal Setup <版本>.exe
 ```
 
-产出：`client/src-tauri/target/release/bundle/nsis/MinCal Setup 0.1.5.exe`
+### CI 构建与发布
 
-### 方式 B：GitHub Actions
+| 触发方式 | 产出 | 能否直接给用户 |
+| --- | --- | --- |
+| push 到 `main` / Pull Request | 仅 **Actions Artifacts**（需登录下载、约 90 天过期） | ❌ 只适合自测 |
+| 推 `v*` tag | CI 构建并经 `softprops/action-gh-release` **发布到 Releases** | ✅ 这才对外交付 |
 
-推送到 GitHub，自动触发 `build-windows.yml`，在 Release 中下载 .exe。
+发版命令：
 
-## 部署
-
-### 后端（1Panel Docker）
-
-将 `docker-compose.yml` 放入 1Panel 应用目录：
+```bash
+git tag v0.1.6
+git push origin v0.1.6
 ```
-/opt/1panel/apps/mincal/mincal/docker-compose.yml
+
+## 本地开发
+
+> 在项目根目录执行，不依赖固定安装路径；把 `<...>` 换成你自己的值。
+
+```bash
+# 1. 配置
+cp .env.example .env      # 填三项，见上面「环境变量」表
+
+# 2. 起后端
+docker compose up -d --build
+curl http://127.0.0.1:28091/health
+
+# 3. 前端热更新（Vite 开发服务器：127.0.0.1:25173）
+cd client && npm install && npm run dev
+
+# 4. 桌面壳调试（需 Rust）
+npx tauri dev
 ```
 
-端口：**28091**
-
-### 客户端分发
-
-将构建好的 .exe 发送给同事，安装后首次启动输入服务器地址即可。
+裸跑后端（不经过 Docker）：`cd backend && pip install -r requirements.txt && uvicorn app.main:app --reload --port 28091`
 
 ## 项目结构
 
@@ -87,7 +141,7 @@ mincal/
 │   │   ├── sync/      # 同步引擎 + WebSocket
 │   │   ├── users/     # 用户管理
 │   │   └── db/        # SQLAlchemy 模型
-│   ├── Dockerfile
+│   ├── Dockerfile     # python:3.12-slim，容器内监听 8000
 │   └── requirements.txt
 ├── client/            # Tauri + React 前端
 │   ├── src-tauri/     # Rust 壳（托盘、窗口管理）
@@ -99,8 +153,9 @@ mincal/
 │       │   └── Settings.tsx
 │       ├── stores/          # Zustand 状态
 │       └── lib/             # API client + types
-├── .github/workflows/ # CI（自动构建 Windows .exe）
+├── .github/workflows/ # CI（Artifacts；打 tag 时发布 Release）
 ├── scripts/           # 构建脚本
-├── docker-compose.yml
-└── docs/PRD.md
+├── docker-compose.yml # 28091:8000，配置从 .env 读
+├── .env.example       # 配置样例（.env 不入库）
+└── docs/              # PRD.md、部署及使用说明.md、测试用例.md
 ```

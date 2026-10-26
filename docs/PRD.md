@@ -532,31 +532,32 @@ WSS  /ws/{user_id}       → WebSocket 实时通道
 
 ## 11. 部署方案
 
-### 11.1 后端 Docker（1Panel）
+### 11.1 后端 Docker（通用，任意 Docker/Podman 宿主）
+
+镜像基于 `python:3.12-slim`，容器内固定监听 8000，宿主端口自由映射；不依赖任何管理面板。
 
 ```yaml
-# /opt/1panel/apps/mincal/mincal/docker-compose.yml
-version: "3.8"
+# 仓库根目录 docker-compose.yml（放到任意目录都行，路径无要求）
 services:
   mincal-server:
-    image: mincal/server:latest
+    build: ./backend          # 或直接 image: <你的镜像仓库>/mincal-server:latest
     container_name: mincal-server
     restart: always
     ports:
-      - "28091:8000"
+      - "28091:8000"         # 左侧宿主端口可换成任意空闲端口
     environment:
-      - DATABASE_URL=postgresql://mincal:PW@100.66.1.1:5432/mincal
-      - JWT_SECRET=${JWT_SECRET}
-      - CORS_ORIGINS=http://localhost,http://127.0.0.1
+      - DATABASE_URL=${DATABASE_URL:?}      # 从 .env 注入，不写死在文件里
+      - JWT_SECRET=${JWT_SECRET:?}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost,http://127.0.0.1}
     networks:
       - mincal_net
 networks:
   mincal_net:
 ```
 
-- **端口**：28091（避开 qsb-studio 的 8090；部署前须 `ss -tlnp` 确认无冲突）
-- **Postgres**：在 100.66.1.1:5432 上 `CREATE DATABASE mincal`
-- **网络**：通过 NodeBabyLink 隧道或 LAN 直连
+- **端口**：宿主侧默认 28091（`ss -tlnp` 确认空闲即可，换别的端口不影响运行）
+- **Postgres**：任意主机的 PostgreSQL 13+，`CREATE DATABASE mincal` 并授权账号即可，不绑定特定实例
+- **网络**：LAN 直连，或任意内网隧道方案（Tailscale / ZeroTier / FRP 均可）；客户端填写的是宿主可达地址
 
 ### 11.2 客户端分发
 - Tauri 编译 Windows x64 NSIS 安装包（~15 MB）

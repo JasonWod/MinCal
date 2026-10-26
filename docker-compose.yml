@@ -17,7 +17,8 @@ services:
     networks:
       - mincal_net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # 基础镜像 python:3.12-slim 不带 curl，用镜像自带的标准库探测，避免健康检查恒定失败
+      test: ["CMD", "python", "-c", "import sys,urllib.request\ntry:\n    r = urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)\n    sys.exit(0 if r.status == 200 else 1)\nexcept Exception:\n    sys.exit(1)\n"]
       interval: 30s
       timeout: 5s
       retries: 3
