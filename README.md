@@ -22,8 +22,8 @@ Windows Client (Tauri 2 + React)  ←→  FastAPI Backend (Docker)  ←→  Post
 到 **Releases** 页面取包，不需要装任何开发环境：
 https://github.com/JasonWod/MinCal/releases
 
-- **安装包** `MinCal Setup <版本>.exe`：双击安装，带开始菜单/桌面快捷方式
-- **便携版** `MinCal-<版本>-windows-x64.zip`：解压即用，免安装
+- **安装包** `MinCal Setup <版本>.exe`：双击安装，带开始菜单/桌面快捷方式。CI 每次打 tag 都会发布到 Releases。
+- **便携版** `MinCal-<版本>-windows-x64.zip`（免安装，含 `MinCal.exe` + `WebView2Loader.dll` + `libunwind.dll` + 证书与说明）：目前由**本地打包**产出，暂不在 CI/Releases 里；需要的话按下方"本地构建"自行组装。
 
 装好后首次启动，在 **设置** 里填服务器地址，形如 `http://<服务器IP>:28091`。
 旧版本里填过的 `:8091` 会在启动时**自动改写**成 `:28091`，不用手动重填。
@@ -97,14 +97,21 @@ uvicorn app.main:app --host 0.0.0.0 --port 28091
 
 ### CI 构建与发布
 
-流水线：`test-client` + `test-backend` → `build-windows`（构建 + 生产模式防呆校验）→ `sign-and-release`（在 Linux 上用 `osslsigncode` 签名并**验签**）→ 发布。
+流水线：`test-client` + `test-backend` → `build-windows`（构建 + 生产模式防呆校验，产物 `mincal-windows-installer-unsigned`）→ `package`（在 Linux 上用 `osslsigncode` 处理并产出最终包 `mincal-windows-installer`）→ 打 tag 时发布 Release。
 
-**Release 里只会出现在流水线里签过名并验签通过的包**：证书缺失或验签失败时该 job 直接失败，不会退化成"发一个未签名包"。
+**签名是可选的，不会卡住打包**：
+
+| 情况 | 行为 |
+| --- | --- |
+| 配了签名证书 secrets | 逐个签名 → **强制验签**；验签不过直接失败拦下（坏包绝不外发） |
+| 没配 secrets | **照常出包**，只是未签名；Release 正文自动写明"未签名"并给出 sha256 供人工校验 |
+
+也就是说：**任何时候 `git tag` 都能拿到可用安装包**，不配证书也能正常打包使用；配了证书只是让包多一层来源标识。
 
 | 触发方式 | 产出 | 能否直接给用户 |
 | --- | --- | --- |
-| push 到 `main` / Pull Request | Actions Artifacts：`mincal-windows-installer-signed`（需登录下载、约 90 天过期） | ⚠️ 自测用 |
-| 推 `v*` tag | 同一批已签名包发布到 **Releases**（正文自动附 sha256） | ✅ 对外交付走这个 |
+| push 到 `main` / Pull Request | Actions Artifacts：`mincal-windows-installer`（需登录下载、约 90 天过期） | ⚠️ 自测用 |
+| 推 `v*` tag | 同一个包发布到 **Releases**（正文自动标注签名状态 + sha256） | ✅ 对外交付走这个 |
 
 发版：
 
@@ -113,9 +120,10 @@ git tag v0.1.6
 git push origin v0.1.6
 ```
 
-#### 需一次性配置的 Secrets
+#### （可选）想让包带上签名：一次性配置 Secrets
 
-仓库 **Settings → Secrets and variables → Actions → Repository secrets**，加两条：
+**不配也完全不影响打包发版**，只是包是未签名的。想启用签名就在仓库
+**Settings → Secrets and variables → Actions → Repository secrets** 加两条，流水线会自动切换成签名模式：
 
 | Secret 名 | 值怎么来 |
 | --- | --- |
