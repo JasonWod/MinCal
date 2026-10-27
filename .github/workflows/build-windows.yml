@@ -92,16 +92,102 @@ jobs:
           # 因此端口字符串**不能**作为 dev/prod 的判据，只有资产清单可靠。
           Write-Host "校验通过：已内嵌 $(( Get-ChildItem 'dist/assets' -Filter 'index-*' | Measure-Object).Count) 个当前 dist 资源（生产模式）"
 
-      - name: Upload installer
+      - name: Upload unsigned installer
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: mincal-windows-installer
+          name: mincal-windows-installer-unsigned
           path: client/src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
-      - name: Release
+  # 签名与发布。刻意放在 Linux 上做：osslsigncode 就是专门给 PE 文件签名的跨平台工具，
+  # 不依赖 Windows runner 上路径不固定的 signtool.exe。
+  # 关键约定：Release 只发**签名后**的包。secrets 缺失时本 job 直接失败，
+  # 不会退化成"把未签名包发出去"。
+  sign-and-release:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      PFX_B64: ${{ secrets.MINCAL_CODESIGN_PFX_BASE64 }}
+      PFX_PASS: ${{ secrets.MINCAL_CODESIGN_PASSWORD }}
+    steps:
+      - name: Install osslsigncode
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends osslsigncode
+          osslsigncode --version
+
+      - name: Download unsigned installer
+        uses: actions/download-artifact@v4
+        with:
+          name: mincal-windows-installer-unsigned
+          path: unsigned
+
+      - name: Sign installers
+        run: |
+          set -euo pipefail
+          if [ -z "${PFX_B64:-}" ] || [ -z "${PFX_PASS:-}" ]; then
+            echo "::error::缺少 secrets：MINCAL_CODESIGN_PFX_BASE64 / MINCAL_CODESIGN_PASSWORD"
+            echo "    拒绝在未签名状态下继续（Release 只应包含已签名安装包）。"
+            echo "    配置方法见 README「CI 构建与发布」一节。"
+            exit 1
+          fi
+
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+          # 去掉换行与空白，避免 base64 里混入 \n 导致解码出残缺 pfx
+          printf '%s' "$PFX_B64" | tr -d ' \n\r\t' | base64 -d > "$WORK/mincal-cs.pfx"
+          chmod 600 "$WORK/mincal-cs.pfx"
+
+          shopt -s nullglob
+          exes=(unsigned/*.exe)
+          if [ ${#exes[@]} -eq 0 ]; then echo "::error::unsigned/ 下没有 exe"; exit 1; fi
+
+          mkdir -p signed
+          for f in "${exes[@]}"; do
+            base="$(basename "$f")"
+            echo "==> 签名 $base"
+            ok=""
+            # 时间戳尽力而为：公网 TSA 不可达时不阻塞发版
+            for ts in http://timestamp.digicert.com http://timestamp.sectigo.com; do
+              if osslsigncode sign -pkcs12 "$WORK/mincal-cs.pfx" -pass "$PFX_PASS" \
+                   -n "MinCal" -i "https://github.com/JasonWod/MinCal" \
+                   -ts "$ts" -in "$f" -out "signed/$base"; then
+                ok="yes"; echo "    已签名（时间戳源 $ts）"; break
+              fi
+              echo "    时间戳源 $ts 不可用，换下一个"
+            done
+            if [ -z "$ok" ]; then
+              echo "    ! 无可用时间戳源，改为不带时间戳签名"
+              osslsigncode sign -pkcs12 "$WORK/mincal-cs.pfx" -pass "$PFX_PASS" \
+                -n "MinCal" -i "https://github.com/JasonWod/MinCal" \
+                -in "$f" -out "signed/$base"
+            fi
+            # 验签不过就终止，绝不把坏包发出去
+            if ! osslsigncode verify "signed/$base"; then
+              echo "::error::$base 验签失败，拒绝发布"
+              exit 1
+            fi
+            echo "    验签通过"
+          done
+
+          echo "==> 产物 sha256"
+          ( cd signed && sha256sum *.exe ) | tee "$GITHUB_WORKSPACE/signed-sha256.txt"
+
+      - name: Upload signed installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: mincal-windows-installer-signed
+          path: signed/*.exe
+          if-no-files-found: error
+
+      - name: Publish Release (signed only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: client/src-tauri/target/release/bundle/nsis/*.exe
+          files: signed/*.exe
+          body_path: signed-sha256.txt
+          fail_on_unmatched_files: true
+

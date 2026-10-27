@@ -97,17 +97,34 @@ uvicorn app.main:app --host 0.0.0.0 --port 28091
 
 ### CI 构建与发布
 
+流水线：`test-client` + `test-backend` → `build-windows`（构建 + 生产模式防呆校验）→ `sign-and-release`（在 Linux 上用 `osslsigncode` 签名并**验签**）→ 发布。
+
+**Release 里只会出现在流水线里签过名并验签通过的包**：证书缺失或验签失败时该 job 直接失败，不会退化成"发一个未签名包"。
+
 | 触发方式 | 产出 | 能否直接给用户 |
 | --- | --- | --- |
-| push 到 `main` / Pull Request | 仅 **Actions Artifacts**（需登录下载、约 90 天过期） | ❌ 只适合自测 |
-| 推 `v*` tag | CI 构建并经 `softprops/action-gh-release` **发布到 Releases** | ✅ 这才对外交付 |
+| push 到 `main` / Pull Request | Actions Artifacts：`mincal-windows-installer-signed`（需登录下载、约 90 天过期） | ⚠️ 自测用 |
+| 推 `v*` tag | 同一批已签名包发布到 **Releases**（正文自动附 sha256） | ✅ 对外交付走这个 |
 
-发版命令：
+发版：
 
 ```bash
 git tag v0.1.6
 git push origin v0.1.6
 ```
+
+#### 需一次性配置的 Secrets
+
+仓库 **Settings → Secrets and variables → Actions → Repository secrets**，加两条：
+
+| Secret 名 | 值怎么来 |
+| --- | --- |
+| `MINCAL_CODESIGN_PFX_BASE64` | `base64 -w0 signing/mincal-cs.pfx` 的完整输出 |
+| `MINCAL_CODESIGN_PASSWORD` | `cat signing/password.txt` 的口令原文 |
+
+> ⚠️ `.pfx` 与口令文件本身**不要**提交（`.gitignore` 已屏蔽 `signing/*.pfx`、`signing/password.txt`）。流水线里 base64 解码后会清洗空白，所以带不换行/多行格式的 base64 都能用。
+>
+> 关于 SmartScreen：这是**自签名**证书，用户机器需要先信任那枚根证书（导入"受信任的根证书颁发机构" + "受信任的发布者"）才不弹窗。签名流程本身无法绕过这一点——要彻底消除警告只能购买公共可信的代码签名证书。
 
 ## 本地开发
 
