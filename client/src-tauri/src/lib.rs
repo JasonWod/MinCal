@@ -293,7 +293,6 @@ fn toggle_window(app: &AppHandle, label: &str) {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
         } else {
-            position_near_tray(&window);
             let _ = window.show();
             let _ = window.set_focus();
         }

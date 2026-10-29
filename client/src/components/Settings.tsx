@@ -23,6 +23,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [server, setServer] = useState(api.getServer());
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [section, setSection] = useState<"profile" | "sync">("profile");
   const [isRegister, setIsRegister] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -117,7 +118,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 pt-3 pb-2">
+        <div className="shrink-0 flex items-center justify-between px-4 pt-3 pb-2">
           <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
             设置
           </span>
@@ -131,9 +132,13 @@ export function Settings({ onClose }: { onClose: () => void }) {
           <button className="ml-2 underline" onClick={() => setDiscardRequested(false)}>继续编辑</button>
           <button className="ml-2 text-[color:var(--danger)]" onClick={onClose}>放弃修改</button>
         </div>}
-        <div className="flex-1 overflow-y-auto px-4 space-y-5 pb-2">
+        <div className="shrink-0 px-4 pb-3 flex gap-2" role="group" aria-label="设置分类">
+          <button className="flex-1 rounded-lg py-2 text-xs" aria-pressed={section === "profile"} style={{ background: section === "profile" ? "var(--accent-soft)" : "var(--bg-tertiary)" }} onClick={() => setSection("profile")}>个人信息</button>
+          <button className="flex-1 rounded-lg py-2 text-xs" aria-pressed={section === "sync"} style={{ background: section === "sync" ? "var(--accent-soft)" : "var(--bg-tertiary)" }} onClick={() => setSection("sync")}>同步设置</button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
           {/* 1. Local identity */}
-          <div>
+          <div hidden={section !== "profile"}>
             <div className="text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
               我的信息
             </div>
@@ -176,10 +181,9 @@ export function Settings({ onClose }: { onClose: () => void }) {
             {message && <p role="status" className="text-xs mt-2">{message}</p>}
           </div>
 
-          <div className="h-px" style={{ background: "var(--border)" }} />
 
           {/* 2. Optional server sync */}
-          <div>
+          <div hidden={section !== "sync"}>
             <div className="flex items-center gap-1.5 mb-1">
               <Globe size={12} style={{ color: "var(--text-secondary)" }} />
               <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>

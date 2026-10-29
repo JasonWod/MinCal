@@ -45,7 +45,7 @@ export function TrayPopup() {
 
   return (
     <div
-      className="w-[360px] h-[480px] flex flex-col rounded-2xl overflow-hidden"
+      className="w-full h-dvh flex flex-col rounded-2xl overflow-hidden"
       style={{
         background: "var(--bg-secondary)",
         boxShadow: "var(--shadow-popup)",
@@ -53,12 +53,12 @@ export function TrayPopup() {
       }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+      <div data-tauri-drag-region className="shrink-0 flex items-center justify-between px-4 pt-3 pb-2 cursor-move" title="拖动此处移动窗口">
+        <div data-tauri-drag-region className="flex items-center gap-2">
+          <span data-tauri-drag-region className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
             {format(baseDate, "M月d日 EEEE", { locale: zhCN })}
           </span>
-          <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+          <span data-tauri-drag-region className="text-xs" style={{ color: "var(--text-tertiary)" }}>
             {format(baseDate, "yyyy")}
             <button className="ml-2 pressable" onClick={() => setBaseDate(new Date())}>今天</button>
           </span>
@@ -99,7 +99,7 @@ export function TrayPopup() {
         <button className="ml-2 underline" onClick={() => void useEventStore.getState().syncNow()}>重试</button>
       </div>}
       {/* Event List */}
-      <div className="flex-1 overflow-y-auto px-3 pb-2 space-y-1">
+      <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-2 space-y-1">
         {days.map((day) => {
           const dayEvents = getEventsForDay(day);
           return (
@@ -138,7 +138,7 @@ export function TrayPopup() {
 
       {/* Footer */}
       <div
-        className="flex items-center justify-between px-4 py-2 border-t"
+        className="shrink-0 flex items-center justify-between px-4 py-2 border-t"
         style={{ borderColor: "var(--border)" }}
       >
         <div className="flex items-center gap-1.5">

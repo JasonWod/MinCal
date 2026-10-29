@@ -68,6 +68,7 @@ export function EventEditor({
     return toLocalInput(end.toISOString());
   });
   const [error, setError] = useState("");
+  const [showDetails, setShowDetails] = useState(Boolean(draft.location || draft.description));
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const [saving, setSaving] = useState(false);
@@ -153,7 +154,7 @@ export function EventEditor({
         aria-modal="true"
         aria-label={isCreate ? "新建事件" : "编辑事件"}
         tabIndex={-1}
-        className="max-h-[min(560px,calc(100vh-16px))] overflow-y-auto rounded-2xl p-4 space-y-3"
+        className="max-h-[calc(100dvh-24px)] flex flex-col overflow-hidden rounded-2xl"
         style={{
           width: "min(420px, calc(100vw - 20px))",
           background: "var(--bg-secondary)",
@@ -163,7 +164,7 @@ export function EventEditor({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="shrink-0 flex items-center justify-between px-4 pt-4 pb-3">
           <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
             {isCreate ? "新建事件" : "编辑事件"}
           </h3>
@@ -177,6 +178,7 @@ export function EventEditor({
           </button>
         </div>
 
+        <div className="min-h-0 overflow-y-auto px-4 pb-3 space-y-3">
         {discardRequested && (
           <div role="alert" className="text-xs rounded-lg p-3 space-y-2" style={{ background: "var(--bg-tertiary)" }}>
             <p>放弃未保存的修改？</p>
@@ -272,6 +274,10 @@ export function EventEditor({
 
 
         <p className="text-xs" style={{ color: "var(--text-secondary)" }}>时间按设备时区：{Intl.DateTimeFormat().resolvedOptions().timeZone}</p>
+        <button type="button" className="text-xs underline pressable" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}>
+          {showDetails ? "收起更多选项" : "更多选项（地点、描述、颜色）"}
+        </button>
+        <div hidden={!showDetails} className="space-y-3">
         {/* Location */}
         <input
           type="text"
@@ -315,6 +321,7 @@ export function EventEditor({
           </div>
         </div>
 
+        </div>
         {/* Visibility */}
         {isOwner && (
           <div>
@@ -348,8 +355,9 @@ export function EventEditor({
           </div>
         )}
 
-        {/* Actions */}
-        <div className="flex gap-2 pt-1">
+        </div>
+        {/* Keep primary actions visible even when expanded content needs scrolling. */}
+        <div className="shrink-0 flex gap-2 px-4 py-3 border-t" style={{ borderColor: "var(--border)" }}>
           <button
             className="flex-1 py-2 rounded-lg text-xs font-medium pressable"
             style={{

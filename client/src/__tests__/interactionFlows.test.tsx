@@ -102,10 +102,11 @@ it("设置显示真实同步状态、保存反馈，并约束键盘焦点", asyn
   useEventStore.setState({ syncStatus: "offline" });
   const onClose = vi.fn();
   render(<Settings onClose={onClose} />);
-  expect(screen.getByText(/同步异常/)).toBeTruthy();
   expect(screen.getByText(/跟随设备/)).toBeTruthy();
   await input.click(screen.getByRole("button", { name: "保存信息" }));
   expect(screen.getByRole("status").textContent).toContain("已保存");
+  await input.click(screen.getByRole("button", { name: "同步设置" }));
+  expect(screen.getByText(/同步异常/)).toBeTruthy();
   const close = screen.getByRole("button", { name: "关闭设置" });
   close.focus();
   await input.tab({ shift: true });

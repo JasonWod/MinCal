@@ -71,7 +71,7 @@ export function FullCalendar() {
   const openEdit = (ev: EventItem) => setEditorTarget({ mode: "edit", event: ev });
   const deleteEvent = (ev: EventItem) => openEdit(ev);
 
-  /** 取 FullCalendar 实例（React ref → getCalendar()） */
+  /** 取 FullCalendar 实例（React ref → getApi()） */
   const fc = (): any => {
     const host: any = calendarRef.current;
     if (!host) return null;
@@ -83,20 +83,10 @@ export function FullCalendar() {
     <div className="w-screen h-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
       {/* Top Bar */}
       <div
-        className="flex items-center justify-between px-4 h-12 border-b"
+        className="flex items-center justify-between px-4 h-11 shrink-0 border-b"
         style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}
       >
-        <div className="flex items-center gap-2">
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: "var(--accent)" }}
-          >
-            <CalendarLogo />
-          </div>
-          <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-            MinCal
-          </span>
-        </div>
+        <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>日历</span>
         <div className="flex items-center gap-3">
           <div
             className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs"
@@ -252,17 +242,6 @@ export function FullCalendar() {
         ]}
       />
     </div>
-  );
-}
-
-function CalendarLogo() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-      <rect x="3" y="4" width="18" height="18" rx="2" />
-      <line x1="16" y1="2" x2="16" y2="6" />
-      <line x1="8" y1="2" x2="8" y2="6" />
-      <line x1="3" y1="10" x2="21" y2="10" />
-    </svg>
   );
 }
 

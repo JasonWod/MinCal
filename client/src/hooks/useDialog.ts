@@ -10,7 +10,7 @@ export function useDialog(onClose: () => void) {
     const root = ref.current;
     const focusable = () => Array.from(root?.querySelectorAll<HTMLElement>(
       'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]'
-    ) ?? []);
+    ) ?? []).filter((el) => !el.closest("[hidden]"));
     if (!root?.contains(document.activeElement)) (focusable()[0] ?? root)?.focus();
     const key = (e: KeyboardEvent) => {
       if (contextMenuIsOpen()) return;
