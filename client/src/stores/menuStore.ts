@@ -4,6 +4,8 @@
 // 等），换成 MinCal 自己的 macOS 风格菜单。任何组件都可以调用
 // `showContextMenu(entries, x, y)` 给出当前上下文专属的菜单项。
 
+import { isOwnerOf } from "../lib/eventUtils";
+import { useEventStore } from "./eventStore";
 import { create } from "zustand";
 import type { EventItem } from "../lib/types";
 
@@ -77,8 +79,9 @@ export function eventMenuEntries(
   event: EventItem,
   handlers: { onEdit: (e: EventItem) => void; onDelete: (e: EventItem) => void }
 ): MenuEntry[] {
+  const own = isOwnerOf(event, useEventStore.getState().selfId);
   return [
-    item("edit", "编辑事件", () => handlers.onEdit(event)),
-    item("delete", "删除事件", () => handlers.onDelete(event), { danger: true }),
+    item("edit", own ? "编辑事件" : "查看日程", () => handlers.onEdit(event)),
+    ...(own ? [item("delete", "删除事件…", () => handlers.onDelete(event), { danger: true })] : []),
   ];
 }

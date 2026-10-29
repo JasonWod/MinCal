@@ -55,7 +55,8 @@ export function clearToken() {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
 
   const res = await fetch(`${baseUrl}${path}`, {
     method,
@@ -64,7 +65,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   });
 
   if (res.status === 401) {
-    throw new Error("Unauthorized");
+    throw new Error("登录已失效，请重新登录");
   }
   if (!res.ok) {
     const text = await res.text();

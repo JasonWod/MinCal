@@ -73,7 +73,7 @@ export function overlapsRange(
   if (isNaN(s)) return false;
   let e = new Date(event.end_time).getTime();
   if (isNaN(e) || e < s) e = s;
-  return s < end.getTime() && e >= start.getTime();
+  return s < end.getTime() && e > start.getTime();
 }
 
 /** 把标题安全地截断成一行显示 */

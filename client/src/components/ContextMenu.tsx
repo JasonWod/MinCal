@@ -44,6 +44,7 @@ export function ContextMenuLayer({
   //    菜单已打开时再次右键 = 把菜单移到新位置（而不是叠出第二层，也不是关掉）。
   useEffect(() => {
     const onContextMenu = (e: MouseEvent) => {
+      if ((e.target as HTMLElement)?.closest("input, textarea, select, [contenteditable]")) return;
       e.preventDefault();
       const items = defaultsRef.current ? defaultsRef.current() : [];
       if (items.length > 0) show(items, e.clientX, e.clientY);
@@ -167,7 +168,7 @@ export function ContextMenuLayer({
               color: entry.disabled
                 ? "var(--text-tertiary)"
                 : entry.danger
-                ? "#EF4444"
+                ? "var(--danger)"
                 : "var(--text-primary)",
               opacity: entry.disabled ? 0.5 : 1,
               cursor: entry.disabled ? "not-allowed" : "default",
@@ -176,7 +177,7 @@ export function ContextMenuLayer({
               if (entry.disabled) return;
               activeIndexRef.current = items.indexOf(entry);
               e.currentTarget.style.background = entry.danger
-                ? "rgba(239,68,68,0.12)"
+                ? "var(--danger-soft)"
                 : "var(--accent-soft)";
             }}
             onMouseLeave={(e) => {

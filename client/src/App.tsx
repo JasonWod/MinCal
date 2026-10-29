@@ -20,7 +20,12 @@ function getWindowMode(): "tray" | "main" {
 }
 
 function App() {
-  const mode = getWindowMode();
+  const [mode, setMode] = useState(getWindowMode);
+  useEffect(() => {
+    const update = () => setMode(getWindowMode());
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
   const initialized = useEventStore((s) => s.initialized);
   const [loading, setLoading] = useState(true);
 

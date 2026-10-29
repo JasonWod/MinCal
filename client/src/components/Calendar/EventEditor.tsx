@@ -1,3 +1,4 @@
+import { ColorSwatch } from "../ColorSwatch";
 import { useEffect, useRef, useState } from "react";
 import type { EventItem } from "../../lib/types";
 import { useEventStore } from "../../stores/eventStore";
@@ -9,7 +10,7 @@ import {
   nextHalfHour,
 } from "../../lib/eventUtils";
 import { X, Trash2, Lock } from "lucide-react";
-import { contextMenuIsOpen } from "../../stores/menuStore";
+import { useDialog } from "../../hooks/useDialog";
 
 const COLORS = [
   { key: "blue", value: "#4F46E5" },
@@ -46,7 +47,7 @@ export function EventEditor({
   // 单机模式下 selfId === "local"，本地事件 owner_id 也是 "local" → 一定可编辑。
   const isOwner = isCreate || isOwnerOf(existing!, selfId);
 
-  const [title, setTitle] = useState(existing?.title ?? "");
+  const [title, setTitle] = useState(draft.title ?? "");
   const [location, setLocation] = useState(draft.location ?? "");
   const [description, setDescription] = useState(draft.description ?? "");
   const [color, setColor] = useState(draft.color ?? "blue");
@@ -61,10 +62,25 @@ export function EventEditor({
   const initStart = draft.start_time || fallbackStart;
   const initEnd = draft.end_time || fallbackEnd;
   const [startStr, setStartStr] = useState(() => toLocalInput(initStart));
-  const [endStr, setEndStr] = useState(() => toLocalInput(initEnd));
+  const [endStr, setEndStr] = useState(() => {
+    if (!existing?.all_day) return toLocalInput(initEnd);
+    const end = new Date(initEnd); end.setDate(end.getDate() - 1);
+    return toLocalInput(end.toISOString());
+  });
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  const [saving, setSaving] = useState(false);
+  const [discardRequested, setDiscardRequested] = useState(false);
+  const snapshot = JSON.stringify([title, location, description, color, visibility, allDay, startStr, endStr]);
+  const initialSnapshot = useRef(snapshot);
+  const requestClose = () => {
+    if (saving) return;
+    if (discardRequested) { setDiscardRequested(false); return; }
+    if (snapshot !== initialSnapshot.current) { setDiscardRequested(true); return; }
+    onClose();
+  };
+  const dialogRef = useDialog(requestClose);
   const titleRef = useRef<HTMLInputElement | null>(null);
 
   // 打开即聚焦标题，确保“点开就能打字”
@@ -76,24 +92,19 @@ export function EventEditor({
     if (!isCreate && el.value) el.select();
   }, [isCreate]);
 
-  // Esc 关闭（若此刻正开着右键菜单，只关菜单，不关编辑器）
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !contextMenuIsOpen()) onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const handleSave = () => {
-    if (!isOwner) return;
+  const handleSave = async () => {
+    if (!isOwner || saving) return;
     const trimmed = title.trim();
     if (!trimmed) {
       setError("标题不能为空");
       titleRef.current?.focus();
       return;
     }
-    const rangeErr = validateRange(startStr, endStr);
+    const startValue = allDay ? `${startStr.slice(0, 10)}T00:00` : startStr;
+    const endDate = new Date(`${endStr.slice(0, 10)}T00:00`);
+    endDate.setDate(endDate.getDate() + 1);
+    const endValue = allDay ? (isNaN(endDate.getTime()) ? "" : toLocalInput(endDate.toISOString())) : endStr;
+    const rangeErr = validateRange(startValue, endValue);
     if (rangeErr) {
       setError(rangeErr);
       return;
@@ -105,31 +116,43 @@ export function EventEditor({
       color,
       visibility,
       all_day: allDay,
-      start_time: fromLocalInput(startStr),
-      end_time: fromLocalInput(endStr),
+      start_time: fromLocalInput(startValue),
+      end_time: fromLocalInput(endValue),
     };
-    if (isCreate) localCreate(payload);
-    else localUpdate(existing!.id, payload);
-    onClose();
+    setSaving(true);
+    try {
+      if (isCreate) await localCreate(payload);
+      else await localUpdate(existing!.id, payload);
+      onClose();
+    } catch {
+      setError("保存失败，请检查设备存储空间后重试。输入内容已保留。");
+    } finally { setSaving(false); }
   };
 
-  const handleDelete = () => {
-    if (!isOwner || !existing) return;
+  const handleDelete = async () => {
+    if (!isOwner || !existing || saving) return;
     if (!confirmDelete) {
       setConfirmDelete(true);
       return;
     }
-    localDelete(existing.id);
-    onClose();
+    setSaving(true);
+    try { await localDelete(existing.id); onClose(); }
+    catch { setError("删除失败，请重试。"); }
+    finally { setSaving(false); }
   };
 
   return (
     <div
       className="fixed inset-0 flex items-center justify-center z-50"
-      style={{ background: "rgba(0,0,0,0.3)" }}
-      onClick={onClose}
+      style={{ background: "var(--scrim)" }}
+      onClick={requestClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={isCreate ? "新建事件" : "编辑事件"}
+        tabIndex={-1}
         className="max-h-[min(560px,calc(100vh-16px))] overflow-y-auto rounded-2xl p-4 space-y-3"
         style={{
           width: "min(420px, calc(100vw - 20px))",
@@ -145,7 +168,7 @@ export function EventEditor({
             {isCreate ? "新建事件" : "编辑事件"}
           </h3>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="关闭"
             className="pressable"
             style={{ color: "var(--text-tertiary)" }}
@@ -154,10 +177,17 @@ export function EventEditor({
           </button>
         </div>
 
+        {discardRequested && (
+          <div role="alert" className="text-xs rounded-lg p-3 space-y-2" style={{ background: "var(--bg-tertiary)" }}>
+            <p>放弃未保存的修改？</p>
+            <button className="pressable mr-3" onClick={() => setDiscardRequested(false)}>继续编辑</button>
+            <button className="pressable text-[color:var(--danger)]" onClick={onClose}>放弃修改</button>
+          </div>
+        )}
         {!isOwner && (
           <div
             className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg"
-            style={{ background: "rgba(245,158,11,0.12)", color: "#B45309" }}
+            style={{ background: "var(--warning-soft)", color: "var(--warning)" }}
           >
             <Lock size={12} />
             只读：这是其他同事的日程，仅创建者可以修改
@@ -173,7 +203,7 @@ export function EventEditor({
             ref={titleRef}
             type="text"
             value={title}
-            disabled={!isOwner}
+            disabled={!isOwner || saving}
             onChange={(e) => {
               setTitle(e.target.value);
               if (error) setError("");
@@ -198,9 +228,9 @@ export function EventEditor({
               开始
             </label>
             <input
-              type="datetime-local"
-              value={startStr}
-              disabled={!isOwner}
+              type={allDay ? "date" : "datetime-local"}
+              value={allDay ? startStr.slice(0, 10) : startStr}
+              disabled={!isOwner || saving}
               onChange={(e) => setStartStr(e.target.value)}
               aria-label="开始时间"
               className="w-full px-2 py-1.5 rounded-lg text-xs border outline-none"
@@ -209,12 +239,12 @@ export function EventEditor({
           </div>
           <div>
             <label className="text-xs mb-1 block" style={{ color: "var(--text-secondary)" }}>
-              结束
+              {allDay ? "结束日期（含当天）" : "结束"}
             </label>
             <input
-              type="datetime-local"
-              value={endStr}
-              disabled={!isOwner}
+              type={allDay ? "date" : "datetime-local"}
+              value={allDay ? endStr.slice(0, 10) : endStr}
+              disabled={!isOwner || saving}
               onChange={(e) => setEndStr(e.target.value)}
               aria-label="结束时间"
               className="w-full px-2 py-1.5 rounded-lg text-xs border outline-none"
@@ -227,19 +257,26 @@ export function EventEditor({
           <input
             type="checkbox"
             checked={allDay}
-            disabled={!isOwner}
-            onChange={(e) => setAllDay(e.target.checked)}
+            disabled={!isOwner || saving}
+            onChange={(e) => {
+              setAllDay(e.target.checked);
+              if (!e.target.checked) {
+                setStartStr(`${startStr.slice(0, 10)}T09:00`);
+                setEndStr(`${endStr.slice(0, 10)}T09:30`);
+              } else if (endStr.slice(0, 10) < startStr.slice(0, 10)) setEndStr(startStr);
+            }}
             aria-label="全天"
           />
           全天事件
         </label>
 
 
+        <p className="text-xs" style={{ color: "var(--text-secondary)" }}>时间按设备时区：{Intl.DateTimeFormat().resolvedOptions().timeZone}</p>
         {/* Location */}
         <input
           type="text"
           value={location}
-          disabled={!isOwner}
+          disabled={!isOwner || saving}
           onChange={(e) => setLocation(e.target.value)}
           placeholder="地点…"
           aria-label="地点"
@@ -250,7 +287,7 @@ export function EventEditor({
         {/* Description */}
         <textarea
           value={description}
-          disabled={!isOwner}
+          disabled={!isOwner || saving}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="描述…"
           rows={3}
@@ -266,17 +303,12 @@ export function EventEditor({
           </label>
           <div className="flex gap-2">
             {COLORS.map((c) => (
-              <button
+              <ColorSwatch
                 key={c.key}
-                aria-label={`颜色 ${c.key}`}
-                disabled={!isOwner}
-                className="w-6 h-6 rounded-full pressable"
-                style={{
-                  background: c.value,
-                  opacity: color === c.key ? 1 : 0.4,
-                  transform: color === c.key ? "scale(1.2)" : "scale(1)",
-                  transition: "all 120ms ease",
-                }}
+                color={c.value}
+                label={`颜色 ${c.key}`}
+                selected={color === c.key}
+                disabled={!isOwner || saving}
                 onClick={() => setColor(c.key)}
               />
             ))}
@@ -293,6 +325,7 @@ export function EventEditor({
               {(["private", "busy", "public"] as const).map((v) => (
                 <button
                   key={v}
+                  aria-pressed={visibility === v}
                   className={visibility === v ? "active" : ""}
                   onClick={() => setVisibility(v)}
                 >
@@ -300,13 +333,16 @@ export function EventEditor({
                 </button>
               ))}
             </div>
+            <p className="text-xs mt-2" style={{ color: "var(--text-secondary)" }}>
+              {visibility === "private" ? "仅自己可见" : visibility === "busy" ? "同事只看到忙碌时段，看不到标题、地点和描述" : "同事可以查看标题、地点和描述"}
+            </p>
           </div>
         )}
 
         {error && (
-          <div
+          <div role="alert"
             className="text-xs px-2.5 py-1.5 rounded-lg"
-            style={{ background: "rgba(239,68,68,0.1)", color: "#EF4444" }}
+            style={{ background: "var(--danger-soft)", color: "var(--danger)" }}
           >
             {error}
           </div>
@@ -320,18 +356,19 @@ export function EventEditor({
               background: isOwner ? "var(--accent)" : "var(--bg-tertiary)",
               color: isOwner ? "#fff" : "var(--text-tertiary)",
             }}
-            disabled={!isOwner}
+            disabled={!isOwner || saving}
             onClick={handleSave}
           >
-            {isCreate ? "创建" : "保存"}
+            {saving ? "保存中…" : isCreate ? "创建" : "保存"}
           </button>
-          {isOwner && (
+          {isOwner && existing && (
             <button
               className="py-2 px-3 rounded-lg text-xs pressable"
               style={{
-                background: confirmDelete ? "#EF4444" : "rgba(239,68,68,0.1)",
-                color: confirmDelete ? "#fff" : "#EF4444",
+                background: confirmDelete ? "#B91C1C" : "var(--danger-soft)",
+                color: confirmDelete ? "#fff" : "var(--danger)",
               }}
+              disabled={saving}
               onClick={handleDelete}
             >
               {confirmDelete ? "确认删除" : "删除"} <Trash2 size={12} className="inline" />
@@ -340,7 +377,7 @@ export function EventEditor({
           <button
             className="py-2 px-3 rounded-lg text-xs pressable"
             style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}
-            onClick={onClose}
+            onClick={requestClose}
           >
             取消
           </button>

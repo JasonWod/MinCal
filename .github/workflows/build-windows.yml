@@ -37,7 +37,7 @@ jobs:
           python-version: "3.12"
       - name: Install backend deps
         working-directory: backend
-        run: pip install -r requirements.txt pytest
+        run: pip install -r requirements.txt pytest httpx
       - name: Security & contract tests (pytest)
         working-directory: backend
         run: python -m pytest -q
@@ -63,7 +63,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: client
-        run: npm install
+        run: npm ci
 
       - name: Build Tauri app
         working-directory: client

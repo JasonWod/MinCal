@@ -9,11 +9,19 @@
   --bg-secondary: #FFFFFF;
   --bg-tertiary: #E8E8ED;
   --text-primary: #1D1D1F;
-  --text-secondary: #6E6E73;
-  --text-tertiary: #86868B;
+  --text-secondary: #515158;
+  --text-tertiary: #62626A;
   --accent: #4F46E5;
   --accent-soft: rgba(79, 70, 229, 0.1);
-  --border: rgba(0, 0, 0, 0.08);
+  --border: rgba(0, 0, 0, 0.16);
+  --scrollbar: #85858F;
+  --scrollbar-hover: #62626A;
+  --danger: #B91C1C;
+  --danger-soft: #FEE2E2;
+  --warning: #854D0E;
+  --warning-soft: #FEF3C7;
+  --success: #166534;
+  --scrim: rgba(0, 0, 0, 0.4);
   --shadow-popup: 0 8px 30px rgba(0, 0, 0, 0.12);
   --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06);
   --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -38,11 +46,19 @@
   --bg-secondary: #000000;
   --bg-tertiary: #2C2C2E;
   --text-primary: #F5F5F7;
-  --text-secondary: #A1A1A6;
-  --text-tertiary: #6E6E73;
+  --text-secondary: #C6C6CC;
+  --text-tertiary: #ABABB3;
   --accent: #5E5CE6;
   --accent-soft: rgba(94, 92, 230, 0.15);
-  --border: rgba(255, 255, 255, 0.1);
+  --border: rgba(255, 255, 255, 0.22);
+  --scrollbar: #82828E;
+  --scrollbar-hover: #ABABB3;
+  --danger: #FCA5A5;
+  --danger-soft: #450A0A;
+  --warning: #FDE68A;
+  --warning-soft: #422006;
+  --success: #86EFAC;
+  --scrim: rgba(0, 0, 0, 0.6);
   --shadow-popup: 0 8px 30px rgba(0, 0, 0, 0.4);
   --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.2);
   --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.3);
@@ -119,14 +135,16 @@ select[disabled] {
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 4px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
+  background: var(--scrollbar);
+  border: 2px solid var(--bg-secondary);
+  border-radius: 6px;
 }
 
 /* Glass effect */
@@ -183,4 +201,26 @@ select[disabled] {
   width: 3px;
   border-radius: 2px;
   flex-shrink: 0;
+}
+
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
+
+/* Keep the actual swatch color unchanged; selection is a ring and checkmark. */
+.color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.color-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 3px;
+}
+button:focus-visible, [role="button"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }

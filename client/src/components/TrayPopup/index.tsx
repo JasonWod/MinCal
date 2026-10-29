@@ -7,13 +7,14 @@ import { ContextMenuLayer } from "../ContextMenu";
 import { showContextMenu, eventMenuEntries, item, sep } from "../../stores/menuStore";
 import { showMainWindow } from "../../lib/tauri";
 import { Calendar, Plus, Settings as SettingsIcon, X, ChevronLeft, ChevronRight } from "lucide-react";
-import { format, addDays, isSameDay, parseISO } from "date-fns";
+import { format, addDays, isSameDay, parseISO, startOfDay } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import { Settings } from "../Settings";
+import { overlapsRange } from "../../lib/eventUtils";
 import type { EventItem } from "../../lib/types";
 
 export function TrayPopup() {
-  const { events, syncStatus, pendingCount, currentUser } = useEventStore();
+  const { events, syncStatus, syncError, pendingCount, currentUser } = useEventStore();
   const [showQuickCreate, setShowQuickCreate] = useState(false);
   const [baseDate, setBaseDate] = useState(new Date());
   const [showSettings, setShowSettings] = useState(false);
@@ -24,7 +25,7 @@ export function TrayPopup() {
     showContextMenu(
       eventMenuEntries(ev, {
         onEdit: openEdit,
-        onDelete: (x) => useEventStore.getState().localDelete(x.id),
+        onDelete: openEdit,
       }),
       e.clientX,
       e.clientY
@@ -34,8 +35,7 @@ export function TrayPopup() {
   const getEventsForDay = (day: Date) => {
     return events
       .filter((e) => {
-        const start = parseISO(e.start_time);
-        return isSameDay(start, day);
+        return overlapsRange(e, startOfDay(day), startOfDay(addDays(day, 1)));
       })
       .sort((a, b) => a.start_time.localeCompare(b.start_time));
   };
@@ -47,9 +47,7 @@ export function TrayPopup() {
     <div
       className="w-[360px] h-[480px] flex flex-col rounded-2xl overflow-hidden"
       style={{
-        background: "var(--glass-bg)",
-        backdropFilter: "var(--glass-blur)",
-        WebkitBackdropFilter: "var(--glass-blur)",
+        background: "var(--bg-secondary)",
         boxShadow: "var(--shadow-popup)",
         border: "1px solid var(--border)",
       }}
@@ -62,12 +60,14 @@ export function TrayPopup() {
           </span>
           <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
             {format(baseDate, "yyyy")}
+            <button className="ml-2 pressable" onClick={() => setBaseDate(new Date())}>今天</button>
           </span>
         </div>
         <div className="flex items-center gap-1">
           <button
             className="p-1 rounded-md pressable"
             style={{ color: "var(--text-tertiary)" }}
+            aria-label="前一天"
             onClick={() => setBaseDate(addDays(baseDate, -1))}
           >
             <ChevronLeft size={16} />
@@ -75,6 +75,7 @@ export function TrayPopup() {
           <button
             className="p-1 rounded-md pressable"
             style={{ color: "var(--text-tertiary)" }}
+            aria-label="后一天"
             onClick={() => setBaseDate(addDays(baseDate, 1))}
           >
             <ChevronRight size={16} />
@@ -82,7 +83,8 @@ export function TrayPopup() {
           <button
             className="p-1 rounded-md pressable"
             style={{ color: "var(--text-tertiary)" }}
-            onClick={() => setShowQuickCreate(!showQuickCreate)}
+            aria-label="快速新建日程"
+            onClick={() => setShowQuickCreate(true)}
           >
             <Plus size={16} />
           </button>
@@ -90,8 +92,12 @@ export function TrayPopup() {
       </div>
 
       {/* Quick Create */}
-      {showQuickCreate && <QuickCreate onClose={() => setShowQuickCreate(false)} />}
+      {showQuickCreate && <QuickCreate date={baseDate} onClose={() => setShowQuickCreate(false)} />}
 
+      {syncError && <div role="alert" className="px-3 py-2 text-xs" style={{ color: "var(--warning)", background: "var(--bg-tertiary)" }}>
+        {syncError} {pendingCount > 0 && `（${pendingCount} 项待上传）`}
+        <button className="ml-2 underline" onClick={() => void useEventStore.getState().syncNow()}>重试</button>
+      </div>}
       {/* Event List */}
       <div className="flex-1 overflow-y-auto px-3 pb-2 space-y-1">
         {days.map((day) => {
@@ -102,7 +108,7 @@ export function TrayPopup() {
                 className="text-xs font-medium px-2 py-1.5 sticky top-0"
                 style={{
                   color: isSameDay(day, new Date()) ? "var(--accent)" : "var(--text-tertiary)",
-                  background: "var(--glass-bg)",
+                  background: "var(--bg-secondary)",
                 }}
               >
                 {isSameDay(day, new Date()) ? "今天" : format(day, "M月d日 EEE", { locale: zhCN })}
@@ -139,11 +145,11 @@ export function TrayPopup() {
           <div
             className="w-2 h-2 rounded-full"
             style={{
-              background: syncStatus === "local" ? "#8E8E93" : syncStatus === "synced" ? "#10B981" : syncStatus === "syncing" ? "#F59E0B" : "#EF4444",
+              background: syncStatus === "local" ? "#8E8E93" : syncStatus === "synced" ? "#10B981" : syncStatus === "syncing" ? "#F59E0B" : "var(--danger)",
             }}
           />
           <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-            {syncStatus === "local" ? "本地" : syncStatus === "synced" ? "已同步" : syncStatus === "syncing" ? "同步中" : "离线"}
+            {syncStatus === "local" ? "本地" : syncStatus === "synced" ? "已同步" : syncStatus === "syncing" ? "同步中" : syncStatus === "error" ? "同步失败" : "离线"}
             {pendingCount > 0 && ` (${pendingCount} 待同步)`}
           </span>
         </div>
@@ -163,6 +169,7 @@ export function TrayPopup() {
           <button
             className="text-xs pressable"
             style={{ color: "var(--text-tertiary)" }}
+            aria-label="设置"
             onClick={() => setShowSettings(true)}
           >
             <SettingsIcon size={12} />

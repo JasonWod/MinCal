@@ -36,10 +36,6 @@ export function getPrefs(): LocalPrefs {
 
 export function savePrefs(partial: Partial<LocalPrefs>): LocalPrefs {
   const next = { ...getPrefs(), ...partial, id: LOCAL_ID };
-  try {
-    localStorage.setItem(KEY, JSON.stringify(next));
-  } catch {
-    /* storage full / unavailable — keep in-memory only */
-  }
+  localStorage.setItem(KEY, JSON.stringify(next));
   return next;
 }

@@ -45,7 +45,7 @@ export function EventItem({
     <div
       role="button"
       tabIndex={0}
-      aria-label={`事件 ${event.title}`}
+      aria-label={`事件 ${isBusy ? "忙碌" : event.title}`}
       className="flex items-center gap-2 px-2 py-2 rounded-lg card-hover pressable"
       style={{ background: isBusy ? "var(--bg-tertiary)" : "transparent" }}
       onClick={() => onEdit?.(event)}
@@ -69,15 +69,15 @@ export function EventItem({
       />
 
       {/* Time */}
-      <div className="flex flex-col min-w-[50px]">
+      <div className="flex flex-col min-w-[64px]">
         <span
           className="text-xs font-medium"
           style={{ color: isBusy ? "var(--text-tertiary)" : "var(--text-primary)" }}
         >
-          {format(start, "HH:mm")}
+          {event.all_day ? "全天" : format(start, "HH:mm")}
         </span>
-        <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-          {format(end, "HH:mm")}
+        <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+          {event.all_day ? "" : format(start, "M/d") !== format(end, "M/d") ? format(end, "M/d HH:mm") : format(end, "HH:mm")}
         </span>
       </div>
 

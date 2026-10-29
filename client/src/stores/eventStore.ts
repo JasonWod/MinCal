@@ -1,5 +1,6 @@
+import { isOwnerOf } from "../lib/eventUtils";
 import { create } from "zustand";
-import type { EventItem, User, SyncStatus, PushResult } from "../lib/types";
+import type { EventItem, User, SyncStatus } from "../lib/types";
 import type { LocalPrefs } from "../lib/prefs";
 import { getPrefs, savePrefs } from "../lib/prefs";
 import {
@@ -15,7 +16,7 @@ import * as api from "../lib/api";
 // Invariants:
 //  - `events` is always populated from local storage (IndexedDB) first, so the
 //    UI works with no network and no account.
-//  - Every local mutation writes to memory AND IndexedDB immediately.
+//  - Local mutations commit to IndexedDB before becoming visible in memory.
 //  - Network sync (push/pull/websocket) is only attempted when `syncEnabled`
 //    is true (a server is configured and the user has a valid token), and any
 //    network failure degrades gracefully to "offline" without touching local
@@ -31,6 +32,7 @@ interface EventStore {
   syncEnabled: boolean;
   syncStatus: SyncStatus;
   pendingCount: number;
+  syncError: string | null;
   lastSyncAt: number | null;
   version: number;
   initialized: boolean;
@@ -50,9 +52,9 @@ interface EventStore {
   setPendingCount: (n: number) => void;
 
   // Local (always available)
-  localCreate: (data: Record<string, unknown>) => void;
-  localUpdate: (id: string, data: Record<string, unknown>) => void;
-  localDelete: (id: string) => void;
+  localCreate: (data: Record<string, unknown>) => Promise<void>;
+  localUpdate: (id: string, data: Record<string, unknown>) => Promise<void>;
+  localDelete: (id: string) => Promise<void>;
 
   // Sync (optional, only when connected)
   syncNow: () => Promise<void>;
@@ -64,6 +66,7 @@ interface EventStore {
 let ws: WebSocket | null = null;
 let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let initStarted = false;
+let syncInFlight: Promise<void> | null = null;
 
 function recomputeSelfId(currentUser: User | null, localUser: LocalPrefs): string {
   return currentUser?.id || localUser.id;
@@ -81,6 +84,7 @@ export const useEventStore = create<EventStore>((set, get) => {
     syncEnabled: false,
     syncStatus: "local",
     pendingCount: 0,
+    syncError: null,
     lastSyncAt: null,
     version: 0,
     initialized: false,
@@ -119,6 +123,7 @@ export const useEventStore = create<EventStore>((set, get) => {
         currentUser: user,
         selfId: recomputeSelfId(user, s.localUser),
         syncEnabled: !!user,
+        version: s.currentUser?.id === user?.id ? s.version : 0,
       })),
     setUsers: (users) => set({ users }),
     setLocalPrefs: (partial) => {
@@ -130,7 +135,7 @@ export const useEventStore = create<EventStore>((set, get) => {
     setVersion: (v) => set({ version: v }),
     setPendingCount: (n) => set({ pendingCount: n }),
 
-    localCreate: (data) => {
+    localCreate: async (data) => {
       const { selfId } = get();
       const now = new Date().toISOString();
       const event: EventItem = {
@@ -148,52 +153,71 @@ export const useEventStore = create<EventStore>((set, get) => {
         updated_at: now,
         version: 1,
       };
+      await putLocalEvent(event);
       get().addEvent(event);
-      void putLocalEvent(event); // persist offline copy
       if (get().syncEnabled) get().pushLocalChange("create", { ...data, id: event.id });
     },
 
-    localUpdate: (id, data) => {
+    localUpdate: async (id, data) => {
       const existing = get().events.find((e) => e.id === id);
       if (!existing) return;
+      if (!isOwnerOf(existing, get().selfId)) throw new Error("仅创建者可以修改日程");
       const updated: EventItem = {
         ...existing,
         ...(data as Partial<EventItem>),
         updated_at: new Date().toISOString(),
         version: existing.version + 1,
       };
+      await putLocalEvent(updated);
       get().updateEvent(updated);
-      void putLocalEvent(updated);
       if (get().syncEnabled) get().pushLocalChange("update", { ...data, id, version: existing.version });
     },
 
-    localDelete: (id) => {
+    localDelete: async (id) => {
+      const existing = get().events.find((e) => e.id === id);
+      if (!existing) return;
+      if (!isOwnerOf(existing, get().selfId)) throw new Error("仅创建者可以删除日程");
+      await deleteLocalEvent(id);
       get().deleteEvent(id);
-      void deleteLocalEvent(id);
       if (get().syncEnabled) get().pushLocalChange("delete", { id });
     },
 
     syncNow: async () => {
       if (!get().syncEnabled) return;
-      set({ syncStatus: "syncing" });
-      try {
-        await get().doPull();
-        connectWS();
-      } catch {
-        set({ syncStatus: "offline" });
-      }
+      if (syncInFlight) return syncInFlight;
+      const server = api.getServer();
+      syncInFlight = (async () => {
+        set({ syncStatus: "syncing" });
+        try {
+          if (!get().currentUser) get().setUser(await api.auth.me());
+          if (!get().syncEnabled || api.getServer() !== server) return;
+          await flushPending();
+          if (!get().syncEnabled || api.getServer() !== server) return;
+          await get().doPull();
+          if (!ws || ws.readyState > 1) connectWS();
+        } catch (error) {
+          if (get().syncEnabled && api.getServer() === server) set({
+            syncStatus: "error",
+            syncError: `同步失败，修改已保存在本机。${error instanceof Error ? error.message : "请检查网络后重试"}`,
+          });
+        }
+      })();
+      try { await syncInFlight; } finally { syncInFlight = null; }
     },
 
     doPull: async () => {
       if (!get().syncEnabled) return;
       try {
         const { version, selfId } = get();
+        const server = api.getServer();
         const result = await api.sync.pull(version);
+        if (!get().syncEnabled || get().selfId !== selfId || api.getServer() !== server) return;
         // Merge remote into local: keep local as source of truth, fold in new
         // / newer remote rows, never drop locally-authored events.
         const map = new Map<string, EventItem>(get().events.map((e) => [e.id, e]));
         for (const r of result.events) {
-          if (r.deleted) continue;
+          if (pendingChanges().some((c) => c.data.id === r.id)) continue;
+          if (r.deleted) { map.delete(r.id); continue; }
           const existing = map.get(r.id);
           if (!existing) {
             map.set(r.id, r);
@@ -211,44 +235,41 @@ export const useEventStore = create<EventStore>((set, get) => {
         set({
           events: visible,
           version: result.version,
-          syncStatus: "synced",
+          syncStatus: pendingChanges().length ? "error" : "synced",
+          pendingCount: pendingChanges().length,
+          syncError: pendingChanges().length ? "仍有修改待上传，请重试同步" : null,
           lastSyncAt: Date.now(),
         });
-        void putAllLocalEvents(visible); // refresh offline copy
+        await putAllLocalEvents(visible);
+        for (const r of result.events) {
+          if (r.deleted && !pendingChanges().some((c) => c.data.id === r.id)) await deleteLocalEvent(r.id);
+        }
       } catch {
-        set({ syncStatus: "offline" });
+        set({ syncStatus: "offline", syncError: "同步失败，修改已保存在本机。请检查网络或重新登录后重试。" });
       }
     },
 
     pushLocalChange: (op, data) => {
       if (!get().syncEnabled) return;
-      set((s) => ({ pendingCount: s.pendingCount + 1, syncStatus: "syncing" }));
-      // 令牌走 Authorization 头，不再拼进 URL（避免落入服务端/代理访问日志）
-      fetch(`${api.getServer()}/sync/push`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${api.getToken()}`,
-        },
-        body: JSON.stringify([{ op, data }]),
-      })
-        .then((r) => r.json())
-        .then((res: PushResult) => {
-          set((s) => ({ pendingCount: Math.max(0, s.pendingCount - 1) }));
-          if (res.results?.[0]?.status === "created" || res.results?.[0]?.status === "updated") {
-            get().doPull();
-          } else if (get().syncEnabled) {
-            set({ syncStatus: "synced" });
-          }
-        })
-        .catch(() => set({ syncStatus: "offline" }));
+      try {
+        const changes = pendingChanges();
+        changes.push({ op, data });
+        savePending(changes);
+        set({ pendingCount: changes.length, syncStatus: "syncing", syncError: null });
+        void get().syncNow();
+      } catch {
+        set({ syncStatus: "error", syncError: "日程已保存到本机，但无法保存上传队列，请勿关闭应用并检查存储空间。" });
+      }
     },
 
     disconnect: () => {
       api.clearToken();
+      if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+      wsReconnectTimer = null;
+      if (ws) ws.onclose = null;
       ws?.close();
       ws = null;
-      set({ currentUser: null, syncEnabled: false, syncStatus: "local", pendingCount: 0 });
+      set({ currentUser: null, syncEnabled: false, syncStatus: "local", pendingCount: 0, syncError: null });
       set((s) => ({ selfId: recomputeSelfId(null, s.localUser) }));
     },
   };
@@ -265,7 +286,7 @@ function connectWS() {
 
   try {
     ws = new WebSocket(url);
-    ws.onopen = () => useEventStore.setState({ syncStatus: "synced" });
+    ws.onopen = () => { void useEventStore.getState().syncNow(); };
     ws.onmessage = (msg) => {
       try {
         const data = JSON.parse(msg.data);
@@ -301,6 +322,58 @@ function scheduleReconnect() {
 }
 
 export function disconnectWS() {
+  if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+  wsReconnectTimer = null;
+  if (ws) ws.onclose = null;
   ws?.close();
   ws = null;
+}
+
+
+type PendingChange = { op: "create" | "update" | "delete"; data: Record<string, unknown> };
+function pendingKey() {
+  return `mincal_pending:${api.getServer()}:${useEventStore.getState().selfId}`;
+}
+function pendingChanges(): PendingChange[] {
+  return JSON.parse(localStorage.getItem(pendingKey()) || "[]");
+}
+function savePending(changes: PendingChange[]) {
+  localStorage.setItem(pendingKey(), JSON.stringify(changes));
+}
+let flushing: Promise<void> | null = null;
+async function flushPending() {
+  if (flushing) return flushing;
+  const key = pendingKey();
+  flushing = (async () => {
+    let changes = pendingChanges();
+    useEventStore.setState({ pendingCount: changes.length });
+    while (changes.length && useEventStore.getState().syncEnabled && pendingKey() === key) {
+      const change = changes[0];
+      const response = await api.sync.push([change]);
+      const result = response.results?.[0];
+      const allowed = change.op === "create" ? ["created", "already_exists"]
+        : change.op === "delete" ? ["deleted", "already_deleted", "not_found"] : ["updated"];
+      if (!result || !allowed.includes(result.status)) {
+        throw new Error(`上传失败：${result?.status || "未知响应"}`);
+      }
+      if (pendingKey() !== key || !useEventStore.getState().syncEnabled) return;
+      changes = pendingChanges();
+      changes.shift();
+      // Use the acknowledged version for later edits rather than the local counter.
+      if (result.version) {
+        for (const next of changes) {
+          if (next.data.id === change.data.id && next.op === "update") next.data.version = result.version;
+        }
+        const current = useEventStore.getState().events.find((e) => e.id === change.data.id);
+        if (current) {
+          const acknowledged = { ...current, version: result.version };
+          await putLocalEvent(acknowledged);
+          useEventStore.getState().updateEvent(acknowledged);
+        }
+      }
+      savePending(changes);
+      useEventStore.setState({ pendingCount: changes.length });
+    }
+  })();
+  try { await flushing; } finally { flushing = null; }
 }

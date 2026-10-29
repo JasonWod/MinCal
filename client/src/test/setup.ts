@@ -48,6 +48,7 @@ beforeEach(() => {
     syncStatus: "local",
     version: 0,
     pendingCount: 0,
+    syncError: null,
     lastSyncAt: null,
     initialized: true,
   });

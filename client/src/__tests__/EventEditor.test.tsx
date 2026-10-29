@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { EventEditor } from "../components/Calendar/EventEditor";
 import { useEventStore } from "../stores/eventStore";
@@ -39,6 +39,7 @@ describe("EventEditor 新建模式（回归：点“新增”无法录入文字�
 
     await user.click(screen.getByRole("button", { name: "创建" }));
 
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     const ev = useEventStore.getState().events[0];
     expect(ev.title).toBe("团队周会");
     expect(ev.owner_id).toBe("local");
@@ -80,6 +81,7 @@ describe("EventEditor 新建模式（回归：点“新增”无法录入文字�
     const onClose = vi.fn();
     render(<EventEditor target={{ mode: "create" }} onClose={onClose} />);
     await user.type(titleInput(), "回车新建{enter}");
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(useEventStore.getState().events[0].title).toBe("回车新建");
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -89,7 +91,7 @@ describe("EventEditor 编辑模式（回归：错误录入的条目无法修改/
   it("单机模式下自己的事件：可改标题并保存", async () => {
     const user = userEvent.setup();
     const ev = makeEvent();
-    useEventStore.getState().localCreate({
+    await useEventStore.getState().localCreate({
       title: ev.title,
       start_time: ev.start_time,
       end_time: ev.end_time,
@@ -103,6 +105,7 @@ describe("EventEditor 编辑模式（回归：错误录入的条目无法修改/
     await user.type(titleInput(), "改对的标题");
     await user.click(screen.getByRole("button", { name: "保存" }));
 
+    await waitFor(() => expect(useEventStore.getState().events[0].title).toBe("改对的标题"));
     const after = useEventStore.getState().events[0];
     expect(after.title).toBe("改对的标题");
     expect(after.version).toBe(created.version + 1);
@@ -110,7 +113,7 @@ describe("EventEditor 编辑模式（回归：错误录入的条目无法修改/
 
   it("单机模式下自己的事件：删除按钮可见且两步确认后删除成功", async () => {
     const user = userEvent.setup();
-    useEventStore.getState().localCreate({
+    await useEventStore.getState().localCreate({
       title: "待删除",
       start_time: "2026-10-26T02:00:00.000Z",
       end_time: "2026-10-26T03:00:00.000Z",
@@ -123,8 +126,8 @@ describe("EventEditor 编辑模式（回归：错误录入的条目无法修改/
     await user.click(delBtn);
     expect(useEventStore.getState().events).toHaveLength(1); // 第一步只确认
     await user.click(screen.getByRole("button", { name: /确认删除/ }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(useEventStore.getState().events).toHaveLength(0);
-    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("他人事件为只读：显示提示、禁用保存、无删除入口", () => {
@@ -135,4 +138,47 @@ describe("EventEditor 编辑模式（回归：错误录入的条目无法修改/
     expect(screen.queryByRole("button", { name: /删除/ })).toBeNull();
     expect((titleInput() as HTMLInputElement).disabled).toBe(true);
   });
+});
+
+it("新建不显示删除；全天事件使用包含结束日期并保存为次日零点", async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  render(<EventEditor target={{ mode: "create" }} onClose={onClose} />);
+  expect(screen.queryByRole("button", { name: /删除/ })).toBeNull();
+  await user.type(titleInput(), "全天出差");
+  await user.click(screen.getByLabelText("全天"));
+  fireEvent.change(screen.getByLabelText("开始时间"), { target: { value: "2027-02-12" } });
+  fireEvent.change(screen.getByLabelText("结束时间"), { target: { value: "2027-02-13" } });
+  await user.click(screen.getByRole("button", { name: "创建" }));
+  await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  const event = useEventStore.getState().events[0];
+  expect(event.all_day).toBe(true);
+  expect(new Date(event.start_time).getHours()).toBe(0);
+  expect(new Date(event.end_time).getDate()).toBe(14);
+});
+
+it("有改动时关闭需确认，取消放弃会保留输入", async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  render(<EventEditor target={{ mode: "create" }} onClose={onClose} />);
+  await user.type(titleInput(), "未保存草稿");
+  await user.click(screen.getByRole("button", { name: "取消" }));
+  expect(screen.getByText("放弃未保存的修改？")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "继续编辑" }));
+  expect(onClose).not.toHaveBeenCalled();
+  expect(titleInput().value).toBe("未保存草稿");
+});
+
+it("本地存储失败时保留编辑器和输入，允许重试", async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  vi.spyOn(useEventStore.getState(), "localCreate").mockRejectedValueOnce(new Error("quota"));
+  render(<EventEditor target={{ mode: "create" }} onClose={onClose} />);
+  await user.type(titleInput(), "不能丢的草稿");
+  await user.click(screen.getByRole("button", { name: "创建" }));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("保存失败"));
+  expect(onClose).not.toHaveBeenCalled();
+  expect(titleInput().value).toBe("不能丢的草稿");
+  await user.click(screen.getByRole("button", { name: "创建" }));
+  await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
 });

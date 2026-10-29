@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QuickCreate } from "../components/TrayPopup/QuickCreate";
 import { useEventStore } from "../stores/eventStore";
@@ -19,6 +19,7 @@ describe("托盘快速新建", () => {
 
     await user.click(screen.getByRole("button", { name: "创建" }));
 
+    await waitFor(() => expect(useEventStore.getState().events).toHaveLength(1));
     const s = useEventStore.getState();
     expect(s.events).toHaveLength(1);
     expect(s.events[0].title).toBe("晨会");
@@ -44,6 +45,7 @@ describe("托盘快速新建", () => {
     await user.type(titleBox(), "长会");
     await user.selectOptions(screen.getByRole("combobox"), "60");
     await user.click(screen.getByRole("button", { name: "创建" }));
+    await waitFor(() => expect(useEventStore.getState().events).toHaveLength(1));
     const e = useEventStore.getState().events[0];
     expect(
       new Date(e.end_time).getTime() - new Date(e.start_time).getTime()
@@ -57,7 +59,19 @@ describe("托盘快速新建", () => {
     render(<QuickCreate onClose={() => {}} />);
     await user.type(titleBox(), "离线创建");
     await user.click(screen.getByRole("button", { name: "创建" }));
+    await waitFor(() => expect(useEventStore.getState().events).toHaveLength(1));
     expect(spy).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
+});
+
+it("快速新建继承正在浏览的日期", async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  render(<QuickCreate date={new Date(2027, 1, 12)} onClose={onClose} />);
+  expect((screen.getByLabelText("日程日期") as HTMLInputElement).value).toBe("2027-02-12");
+  await user.type(titleBox(), "未来的会议");
+  await user.click(screen.getByRole("button", { name: "创建" }));
+  await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  expect(new Date(useEventStore.getState().events[0].start_time).getDate()).toBe(12);
 });

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { colorForeground } from "../ColorSwatch";
+import { useRef, useState } from "react";
 import FullCalendarView from "@fullcalendar/react";
 import dayGrid from "@fullcalendar/daygrid";
 import timeGrid from "@fullcalendar/timegrid";
@@ -18,28 +19,29 @@ const COLOR_MAP: Record<string, string> = {
   green: "#10B981",
   orange: "#F59E0B",
   purple: "#8B5CF6",
-  red: "#EF4444",
+  red: "var(--danger)",
   pink: "#EC4899",
 };
 
 /** 把 store 事件转换成 FullCalendar 需要的结构（含他人 busy 的脱敏显示） */
 export function toCalendarEvent(e: EventItem, selfId: string) {
   const masked = isOtherBusy(e, selfId);
+  const background = masked ? "#8E8E93" : COLOR_MAP[e.color ?? "blue"] ?? "#4F46E5";
   return {
     id: e.id,
     title: masked ? "忙碌" : e.title,
     start: e.start_time,
     end: e.end_time,
     allDay: e.all_day,
-    backgroundColor: masked ? "#8E8E93" : COLOR_MAP[e.color ?? "blue"] ?? "#4F46E5",
-    borderColor: masked ? "#8E8E93" : COLOR_MAP[e.color ?? "blue"] ?? "#4F46E5",
-    textColor: "#FFFFFF",
-    editable: !masked,
+    backgroundColor: background,
+    borderColor: background,
+    textColor: colorForeground(background),
+    editable: false,
   };
 }
 
 export function FullCalendar() {
-  const { events, syncStatus, currentUser, selfId } = useEventStore();
+  const { events, syncStatus, syncError, pendingCount, currentUser, selfId } = useEventStore();
   const calendarRef = useRef<any>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null);
@@ -52,7 +54,7 @@ export function FullCalendar() {
   const findByFcId = (id: string): EventItem | undefined =>
     eventsRef.current.find((e) => e.id === id);
 
-  const openCreate = (start?: Date) => {
+  const openCreate = (start?: Date, allDay = false) => {
     const s = start ?? nextHalfHour();
     const end = new Date(s.getTime() + 30 * 60 * 1000);
     setEditorTarget({
@@ -61,28 +63,21 @@ export function FullCalendar() {
         start_time: s.toISOString(),
         end_time: end.toISOString(),
         visibility: "busy",
+        all_day: allDay,
       },
     });
   };
 
   const openEdit = (ev: EventItem) => setEditorTarget({ mode: "edit", event: ev });
-  const deleteEvent = (ev: EventItem) => useEventStore.getState().localDelete(ev.id);
+  const deleteEvent = (ev: EventItem) => openEdit(ev);
 
   /** 取 FullCalendar 实例（React ref → getCalendar()） */
   const fc = (): any => {
     const host: any = calendarRef.current;
     if (!host) return null;
-    return typeof host.getCalendar === "function" ? host.getCalendar() : host;
+    return typeof host.getApi === "function" ? host.getApi() : host;
   };
 
-  // 同步事件到日历。注意：不再按“当前月”预过滤 —— FullCalendar 会按当前视图
-  // 区间自行渲染，预过滤会导致切到上一月 / 周视图时看不到事件。
-  useEffect(() => {
-    const cal = fc();
-    if (!cal || typeof cal.removeAllEvents !== "function") return;
-    cal.removeAllEvents();
-    events.forEach((e) => cal.addEvent(toCalendarEvent(e, selfId), false));
-  }, [events, selfId]);
 
   return (
     <div className="w-screen h-screen flex flex-col" style={{ background: "var(--bg-primary)" }}>
@@ -117,7 +112,7 @@ export function FullCalendar() {
                     ? "#10B981"
                     : syncStatus === "syncing"
                     ? "#F59E0B"
-                    : "#EF4444",
+                    : "var(--danger)",
               }}
             />
             <span style={{ color: "var(--text-tertiary)" }}>
@@ -127,7 +122,7 @@ export function FullCalendar() {
                 ? "已同步"
                 : syncStatus === "syncing"
                 ? "同步中"
-                : "离线"}
+                : syncStatus === "error" ? "同步失败" : "离线"}
             </span>
           </div>
           <button
@@ -142,7 +137,8 @@ export function FullCalendar() {
           <button
             className="p-1.5 rounded-lg pressable"
             style={{ color: "var(--text-secondary)" }}
-            aria-label="团队"
+            onClick={() => setShowSettings(true)}
+            aria-label="账号与同步设置"
             title={currentUser ? `已登录：${currentUser.display_name}` : "未连接同步服务器"}
           >
             <Users size={18} />
@@ -158,6 +154,10 @@ export function FullCalendar() {
         </div>
       </div>
 
+      {syncError && <div role="alert" className="px-3 py-2 text-xs" style={{ color: "var(--warning)", background: "var(--bg-tertiary)" }}>
+        {syncError} {pendingCount > 0 && `（${pendingCount} 项待上传）`}
+        <button className="ml-2 underline" onClick={() => void useEventStore.getState().syncNow()}>重试</button>
+      </div>}
       {/* Calendar */}
       <div className="flex-1 min-h-0 p-3">
         <div
@@ -173,6 +173,7 @@ export function FullCalendar() {
         >
           <FullCalendarView
             ref={calendarRef}
+            events={events.filter((e) => !e.deleted && (e.owner_id === selfId || e.visibility !== "private")).map((e) => toCalendarEvent(e, selfId))}
             plugins={[dayGrid, timeGrid, interaction]}
             initialView="timeGridWeek"
             locale={zhLocale}
@@ -182,8 +183,9 @@ export function FullCalendar() {
               center: "title",
               right: "dayGridMonth,timeGridWeek,timeGridDay",
             }}
-            slotMinTime="07:00:00"
-            slotMaxTime="22:00:00"
+            slotMinTime="00:00:00"
+            scrollTime="08:00:00"
+            slotMaxTime="24:00:00"
             nowIndicator={true}
             weekNumbers={false}
             firstDay={1}
@@ -195,7 +197,7 @@ export function FullCalendar() {
             displayEventTime={true}
             displayEventEnd={true}
             // 点击空白格 → 直接弹出“新建事件”，不再静默创建“新事件”
-            dateClick={(info: any) => openCreate(info.start)}
+            dateClick={(info: any) => openCreate(info.date, info.allDay)}
             eventClick={(info: any) => {
               const ev = findByFcId(info.event.id);
               if (ev) openEdit(ev);

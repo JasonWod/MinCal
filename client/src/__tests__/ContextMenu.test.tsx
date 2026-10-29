@@ -110,3 +110,10 @@ describe("右键菜单：屏蔽浏览器默认菜单", () => {
     expect(screen.getAllByRole("menuitem").length).toBe(2);
   });
 });
+
+it("输入框保留系统右键编辑菜单", () => {
+  render(<><input aria-label="标题" /><ContextMenuLayer defaultEntries={() => [item("new", "新建", () => {})]} /></>);
+  const e = ctxEvent(screen.getByLabelText("标题"));
+  expect(e.defaultPrevented).toBe(false);
+  expect(screen.queryByRole("menu")).toBeNull();
+});

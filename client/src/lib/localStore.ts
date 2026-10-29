@@ -56,6 +56,7 @@ export async function putLocalEvent(event: EventItem): Promise<void> {
     const t = db.transaction(STORE, "readwrite");
     t.objectStore(STORE).put(event);
     t.oncomplete = () => resolve();
+    t.onabort = () => reject(t.error || new Error("Storage transaction aborted"));
     t.onerror = () => reject(t.error || new Error("Failed to write event"));
   });
 }
@@ -69,6 +70,7 @@ export async function putAllLocalEvents(events: EventItem[]): Promise<void> {
     const store = t.objectStore(STORE);
     for (const e of events) store.put(e);
     t.oncomplete = () => resolve();
+    t.onabort = () => reject(t.error || new Error("Storage transaction aborted"));
     t.onerror = () => reject(t.error || new Error("Failed to bulk-write events"));
   });
 }
@@ -80,6 +82,7 @@ export async function deleteLocalEvent(id: string): Promise<void> {
     const t = db.transaction(STORE, "readwrite");
     t.objectStore(STORE).delete(id);
     t.oncomplete = () => resolve();
+    t.onabort = () => reject(t.error || new Error("Storage transaction aborted"));
     t.onerror = () => reject(t.error || new Error("Failed to delete event"));
   });
 }
@@ -91,6 +94,7 @@ export async function clearLocalEvents(): Promise<void> {
     const t = db.transaction(STORE, "readwrite");
     t.objectStore(STORE).clear();
     t.oncomplete = () => resolve();
+    t.onabort = () => reject(t.error || new Error("Storage transaction aborted"));
     t.onerror = () => reject(t.error || new Error("Failed to clear events"));
   });
 }
